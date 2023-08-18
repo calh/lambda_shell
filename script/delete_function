@@ -1,0 +1,29 @@
+#!/bin/bash
+# If you screwed up the create_function and want to redo it,
+# run this to destroy everything that was created in create_function
+
+set -e
+ROOT=$(cd -P -- "$(dirname -- "$0")/.." && printf '%s\n' "$(pwd -P)")
+source $ROOT/script/environment
+
+set -x
+
+$aws ecr batch-delete-image --repository-name "$ECR_PATH" \
+    --image-ids "$($aws ecr list-images --repository-name "$ECR_PATH" --query 'imageIds[*]' --output json)"
+
+# Delete the ECR repository
+$aws ecr delete-repository --repository-name "$ECR_PATH"
+
+# detach policy from role
+policy_arn=$($aws iam list-policies | jq -r '.Policies | map(select(.PolicyName=="'"$NAME"'")) | .[].Arn')
+$aws iam detach-role-policy --role-name "$NAME" --policy-arn "$policy_arn"
+
+# Create IAM role
+$aws iam delete-role --role-name $NAME 
+
+$aws iam delete-policy --policy-arn "$policy_arn"
+
+$aws logs delete-log-group --log-group-name "/aws/lambda/${NAME}"
+
+$aws --no-cli-pager lambda delete-function --function-name "$NAME" 
+

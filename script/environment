@@ -1,0 +1,26 @@
+# Name of the lambda function and Docker image.
+# This is automatically generated based on your project directory name
+NAME=$(basename -- $ROOT)
+
+# Pick an appropriate ECR prefix path for your project
+ECR_PATH=lambda/${NAME}
+
+# Fill in the AWS account number
+ECR_ACCOUNT=1234
+
+# And AWS Region you're working in
+AWS_DEFAULT_REGION=us-east-1
+
+ECR_DOMAIN=${ECR_ACCOUNT}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+ECR_IMAGE=${ECR_DOMAIN}/${ECR_PATH}
+
+# Tag each release with a UTC timestamp, in addition to :latest
+#RELEASE=$( date -u "+%Y%m%d%H%M%S" )
+# Or maybe you might like to use the HEAD SHA-1
+RELEASE=$( git rev-parse HEAD )
+
+# If you want to add a --profile parameter to the AWS CLI, uncomment
+#AWS_PROFILE="--profile me@account"
+
+# Customize the AWS CLI binary location or any extra parameters
+aws="aws $AWS_PROFILE"

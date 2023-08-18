@@ -1,0 +1,11 @@
+#!/bin/bash
+ROOT=$(cd -P -- "$(dirname -- "$0")/.." && printf '%s\n' "$(pwd -P)")
+cd "$ROOT" || exit
+
+source $ROOT/script/environment
+
+set -e
+
+docker pull amazon/aws-cli
+docker build -t $NAME:$RELEASE $ROOT
+docker tag $NAME:$RELEASE $NAME:latest

@@ -1,0 +1,134 @@
+#!/bin/bash
+# Only run this once to create your function!!!
+# Configure all tunables below
+set -e
+ROOT=$(cd -P -- "$(dirname -- "$0")/.." && printf '%s\n' "$(pwd -P)")
+source $ROOT/script/environment
+
+### array of all IAM permissions
+IAM_PERMISSIONS=()
+# These are the minimum defined in LambdaBasicExecutionRole
+# and LambdaVPCAccessExecutionRole
+IAM_PERMISSIONS+=('logs:PutLogEvents')
+IAM_PERMISSIONS+=('logs:CreateLogStream')
+IAM_PERMISSIONS+=('ec2:CreateNetworkInterface')
+IAM_PERMISSIONS+=('ec2:DeleteNetworkInterface')
+IAM_PERMISSIONS+=('ec2:DescribeNetworkInterfaces')
+# The rest of these are common other things you might want
+#IAM_PERMISSIONS+=('logs:CreateLogGroup')
+#IAM_PERMISSIONS+=('logs:GetLogEvents')
+#IAM_PERMISSIONS+=('cloudwatch:ListMetrics')
+#IAM_PERMISSIONS+=('cloudwatch:GetMetricStatistics')
+#IAM_PERMISSIONS+=('cloudwatch:Describe*')
+#IAM_PERMISSIONS+=('cloudwatch:PutMetricData')
+#IAM_PERMISSIONS+=('rds:DescribeDBInstances')
+#IAM_PERMISSIONS+=('s3:ListBucket')
+#IAM_PERMISSIONS+=('s3:GetObject')
+#IAM_PERMISSIONS+=('s3:PutObject')
+#IAM_PERMISSIONS+=('ec2:Describe*')
+#IAM_PERMISSIONS+=('autoscaling:Describe*')
+#IAM_PERMISSIONS+=('elasticloadbalancing:Describe*')
+#IAM_PERMISSIONS+=('ecs:Describe*')
+#IAM_PERMISSIONS+=('ecs:ListTasks')
+#IAM_PERMISSIONS+=('ecs:UpdateService')
+
+### VPC security groups to assign to this function
+SECURITY_GROUPS=()
+SECURITY_GROUPS+=('sg-1234')
+#SECURITY_GROUPS+=('sg-5678')
+
+### VPC subnet IDs
+SUBNETS=()
+SUBNETS+=('subnet-1234')
+#SUBNETS+=('subnet-5678')
+
+### Tag your Lambda function if you want!
+declare -A TAGS
+TAGS[Environment]="production"
+TAGS[Role]="cron job"
+TAGS[Name]="$NAME"
+
+### Timeout in seconds for your Lambda function execution
+TIMEOUT=50
+
+### Memory in MB that your Lambda function needs to run
+MEMORY=128
+
+#################################################################
+function join_by {
+  local d=${1-} f=${2-}
+  if shift 2; then
+    printf %s "$f" "${@/#/$d}"
+  fi
+}
+
+function join_tags {
+  local str=""
+  local tags_array=()
+  for key in "${!TAGS[@]}"; do
+    tags_array+=('"'"$key"'":"'"${TAGS[${key}]}"'"')
+  done
+  str='{'$(join_by ',' "${tags_array[@]}")'}'
+  echo $str
+}
+
+set -x
+
+# Build the image
+$ROOT/script/docker_build
+
+# Create the ECR repository
+$aws ecr create-repository --repository-name "$ECR_PATH"
+
+# Push to ECR without the extra stuff docker_push is doing
+docker tag $NAME:latest $ECR_IMAGE:latest
+$aws ecr get-login-password | docker login --username AWS --password-stdin $ECR_DOMAIN
+docker push $ECR_IMAGE:latest
+
+# Create IAM role
+role_arn=$($aws iam create-role --role-name $NAME --assume-role-policy-document '{"Version": "2012-10-17","Statement": [{"Effect": "Allow","Principal": {"Service": ["lambda.amazonaws.com"]},"Action": "sts:AssumeRole"}]}' | jq -r '.Role.Arn')
+
+echo "Role ARN: $role_arn"
+
+if [[ "$role_arn" == "" ]]; then 
+  echo "Error? Or the function was already created?"
+  exit 1
+fi
+
+# Create an IAM policy with only the permissions you need.  
+policy_doc=$(cat <<-END
+{
+  "Version": "2012-10-17",
+  "Statement": [
+  {
+    "Effect": "Allow",
+    "Action":["$(join_by '","' "${IAM_PERMISSIONS[@]}")"],
+    "Resource":"*"
+  }]}
+END
+)
+
+policy_arn=$($aws iam create-policy --policy-name "$NAME" --policy-document "$policy_doc" | jq -r '.Policy.Arn')
+
+# Attach the policy to the role
+$aws iam attach-role-policy --role-name "$NAME" --policy-arn "$policy_arn"
+
+# Create a log group for the function
+$aws logs create-log-group --log-group-name "/aws/lambda/${NAME}"
+$aws logs put-retention-policy --log-group-name "/aws/lambda/${NAME}" --retention-in-days 7
+
+# Sleep just a bit for the IAM things to do whatever they do.
+# Without this I get "The role defined for the function cannot be assumed by Lambda."
+sleep 10
+
+# These are the main security groups and subnets we use on the Flexmls prod account.
+# Change things around if you're on a different account.
+# Also change the tags appropriately for your app.
+# You can also specify a different lambda timeout and memory capacity.
+# More memory gives you more CPU quota time as well.
+$aws --no-cli-pager lambda create-function --function-name "$NAME" \
+  --timeout "$TIMEOUT" --memory-size "$MEMORY" \
+  --role "$role_arn" --code 'ImageUri='"$ECR_IMAGE"':latest' \
+  --package-type Image \
+  --vpc-config 'SecurityGroupIds='$(join_by ',' "${SECURITY_GROUPS[@]}")',SubnetIds='$(join_by ',' "${SUBNETS[@]}") \
+  --tags "$(join_tags)"

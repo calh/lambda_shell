@@ -1,0 +1,34 @@
+#!/bin/bash
+# Use this script to build & push a new image
+set -e
+ROOT=$(cd -P -- "$(dirname -- "$0")/.." && printf '%s\n' "$(pwd -P)")
+cd "$ROOT" || exit
+
+source $ROOT/script/environment
+
+docker tag $NAME:latest $ECR_IMAGE:$RELEASE
+docker tag $NAME:latest $ECR_IMAGE:latest
+
+aws ecr get-login-password | docker login --username AWS --password-stdin $ECR_DOMAIN
+docker push $ECR_IMAGE:$RELEASE
+docker push $ECR_IMAGE:latest
+
+echo "Pushed release $ECR_IMAGE:$RELEASE"
+
+# Tickle the Lambda function to trigger pulling :latest again
+aws --no-cli-pager lambda update-function-code --function-name $NAME --image-uri $ECR_IMAGE:latest
+
+# Wait for the deployment to finish
+function lambda_status()
+{
+  aws lambda get-function --output text --function-name $NAME --query 'Configuration.LastUpdateStatusReason'
+}
+echo "Waiting for lambda deployment..."
+st=$(lambda_status)
+while [[ "$st" != "None" ]]; do
+  echo "$st"
+  sleep 5
+  st=$(lambda_status)
+done
+
+
