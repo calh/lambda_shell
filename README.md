@@ -380,6 +380,8 @@ Using the `$SCRIPT_NAME` variable, you can implement your own HTTP router with a
 ```
 function handler()
 {
+  parse_http_request
+
   case "${SCRIPT_NAME}" in
     /)
       generate_http_response "index.html"
@@ -411,6 +413,8 @@ index.html.mo:
 ```
 function handler()
 {
+  parse_http_request
+
   if [[ "${HTTP_COOKIES[user]}" == "" ]]; then
     generate_http_response \
       --cookie "user=Bob" \
