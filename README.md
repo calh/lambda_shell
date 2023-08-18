@@ -448,3 +448,18 @@ function handler()
   )
 }
 ```
+
+```
+curl https://abcd1234.lambda-url.us-east-1.on.aws
+[
+    {
+        "PrivateIpAddress": "192.168.0.10",
+        "Description": "arn:aws:ecs:us-east-1:1234:attachment/..."
+    },
+    {
+        "PrivateIpAddress": "192.168.0.20",
+        "Description": "Interface for NAT Gateway nat-1234"
+    },
+    . . . 
+]
+```
