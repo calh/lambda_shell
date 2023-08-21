@@ -7,6 +7,8 @@ for use cases like cron jobs or tasks that you want to quickly set up and deploy
 This also implements the [Lambda Function URL](https://docs.aws.amazon.com/lambda/latest/dg/urls-invocation.html) API to
 to write HTTP endpoints in bash!
 
+See [Examples](#Examples) below!
+
 ## Setting Up
 
 * Install and configure [the AWS CLI client](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) on your workstation
@@ -462,4 +464,115 @@ curl https://abcd1234.lambda-url.us-east-1.on.aws
     },
     . . . 
 ]
+```
+
+### Daily Billing Report
+
+Pull EstimatedCharges from CloudWatch and forecast from Cost Explorer
+then send an email via SES.
+
+```
+function handler()
+{
+  yesterday_bill=$(aws cloudwatch get-metric-statistics \
+    --namespace "AWS/Billing" \
+    --metric-name "EstimatedCharges" \
+    --dimension "Name=Currency,Value=USD" \
+    --start-time $(date +"%Y-%m-%dT%H:%M:00" --date="-24 hours") \
+    --end-time $(date +"%Y-%m-%dT%H:%M:00") \
+    --statistic Maximum \
+    --period 60 \
+    --output text | sort -r -k 3 | head -n 1 | cut -f 2
+  )
+  two_days_ago_bill=$(aws cloudwatch get-metric-statistics \
+    --namespace "AWS/Billing" \
+    --metric-name "EstimatedCharges" \
+    --dimension "Name=Currency,Value=USD" \
+    --start-time $(date +"%Y-%m-%dT%H:%M:00" --date="-48 hours") \
+    --end-time $(date +"%Y-%m-%dT%H:%M:00" --date="-24 hours") \
+    --statistic Maximum \
+    --period 60 \
+    --output text | sort -r -k 3 | head -n 1 | cut -f 2
+  )
+
+  delta_bill='$'"$(echo "$yesterday_bill $two_days_ago_bill" | awk '{print $1-$2}')"
+  
+  # Forecase for the end of month bill
+  end_of_month=$(date --date="$(date +'%Y-%m-01') + 1 month - 1 second" "+%Y-%m-%d")
+  next_month=$(date --date="$(date +'%Y-%m-01') + 1 month" "+%Y-%m-%d")
+  forecast_json=$( aws ce get-cost-forecast \
+    --time-period Start=$end_of_month,End=$next_month \
+    --metric=AMORTIZED_COST \
+    --granularity=MONTHLY
+  )
+  end_period=$( echo $forecast_json | jq -r '.ForecastResultsByTime[0].TimePeriod.End' )
+  forecast_cost='$'"$(echo $forecast_json | jq -r '.ForecastResultsByTime[0].MeanValue' )"
+ 
+  aws ses send-email \
+    --from "me@example.com" \
+    --destination "ToAddresses=me@example.com" \
+    --message "Subject={Data=AWS Billing Report,Charset=utf8},Body={Html={Data=<pre>Last 24 hour bill `echo $bill`.<br><br>Bill forecast for period ending $end_period => $forecast_cost<br><br></pre>,Charset=utf8}}" 
+}
+```
+
+### Automated Snapshots
+
+Given a passed in EC2 instance ID from an EventBridge 
+JSON config, snapshot this instance and add a Retention
+tag for daily, weekly, monthly, quarterly and annually.
+
+After the snapshot has finished, create an AMI with
+the same tag.
+
+```
+function retention()
+{
+  local month=$(date +"%m")
+  local day=$(date +"%d"`)
+  local hour=$(date +"%H")
+  local year=$(date +"%Y")
+  local day_of_week=$(date +"%a")
+
+  if [[ ("$month" == "01") && ("$day" == "01") ]]; then
+    echo "annually"
+  elif [[ ("$month" == "01" || "$month" == "04" || "$month" == "07" || "$month" == "10") && ("$day" == "01") ]]; then
+    echo "quarterly"
+  elif [[ ("$day" == "01") ]]; then
+    echo "monthly"
+  elif [[ ("$day_of_week" == "Sat" && $hour -ge 12) || ("$day_of_week" == "Sun" && $hour -lt 12) ]]; then
+    echo "weekly"
+  else
+    echo "daily"
+  fi
+}
+
+# Called with EventBridge event JSON {"InstanceID": "i-1234"}
+function handler()
+{
+  parse_event
+  instance_id="${EVENT_INSTANCEID}"
+
+  # Grab the root volume ID
+  volume_id=$(aws ec2 describe-volumes \
+    --filters Name=attachment.instance-id,Values=$instance_id Name=attachment.device,Values=/dev/sda1 \
+    --query 'Volumes[0].Attachments[0].VolumeId' --output text
+  )
+
+  # daily/weekly/monthly/quarterly/yearly
+  retention_value=$(retention)
+
+  # Start the snapshot process
+  snapshot_id=$(aws ec2 create-snapshot \
+    --volume-id $volume_id \
+    --description "Automated $retention_value backup on $instance_id" 
+    --tag-specifications "ResourceType=snapshot,Tags=[{Key=Retention,Value=$retention_value},{Key=InstanceID,Value=$instance_id}]" \
+    --query 'SnapshotId' --output text
+  )
+
+  echo "Created Snapshot ID $snapshot_id"
+ 
+  # clean up the $EVENT variables
+  unset_event
+}
+
 ```
