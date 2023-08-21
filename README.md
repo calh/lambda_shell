@@ -391,6 +391,7 @@ function handler()
     /status.json
       if [[ "${REQUEST_METHOD}" == "POST" ]]; then
         # update something
+        STATUS="${HTTP_PARAMS[Status]}"
       fi
       generate_mustache_http_response "status.json.mo"
       ;;
@@ -430,7 +431,7 @@ function handler()
 Note:  This example is horribly insecure.  Don't use something like this for authentication.
 Sign and encrypt your cookies or use JSON Web Tokens.
 
-### Wrapping the AWS CLI
+### Proxy the AWS CLI
 
 You can work with AWS's `--query` language, or just use `jq` to create the output you
 desire.  You can specify `--content-type` header explicitly, or just rely on the 
