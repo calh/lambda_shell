@@ -391,7 +391,7 @@ function handler()
     /status.json
       if [[ "${REQUEST_METHOD}" == "POST" ]]; then
         # update something
-        STATUS=$(aws ec2 ...)
+        STATUS=$(aws ec2 --instance-ids $HTTP_PARAMS[InstanceID] ...)
       fi
       generate_mustache_http_response "status.json.mo"
       ;;
