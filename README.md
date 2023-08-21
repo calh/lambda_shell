@@ -497,7 +497,7 @@ function handler()
 
   delta_bill='$'"$(echo "$yesterday_bill $two_days_ago_bill" | awk '{print $1-$2}')"
   
-  # Forecase for the end of month bill
+  # Forecast for the end of month bill
   end_of_month=$(date --date="$(date +'%Y-%m-01') + 1 month - 1 second" "+%Y-%m-%d")
   next_month=$(date --date="$(date +'%Y-%m-01') + 1 month" "+%Y-%m-%d")
   forecast_json=$( aws ce get-cost-forecast \
