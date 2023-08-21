@@ -391,7 +391,6 @@ function handler()
     /status.json
       if [[ "${REQUEST_METHOD}" == "POST" ]]; then
         # update something
-        STATUS="${HTTP_PARAMS[Status]}"
       fi
       generate_mustache_http_response "status.json.mo"
       ;;
