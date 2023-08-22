@@ -388,7 +388,7 @@ function handler()
     /)
       generate_http_response "index.html"
       ;;
-    /status.json
+    /status.json)
       if [[ "${REQUEST_METHOD}" == "POST" ]]; then
         # update something
         STATUS=$(aws ec2 --instance-ids $HTTP_PARAMS[InstanceID] ...)
