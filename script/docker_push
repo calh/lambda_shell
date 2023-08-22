@@ -6,6 +6,12 @@ cd "$ROOT" || exit
 
 source $ROOT/script/environment
 
+# Wait for the deployment to finish
+function lambda_status()
+{
+  aws lambda get-function --output text --function-name $NAME --query 'Configuration.LastUpdateStatusReason'
+}
+
 docker tag $NAME:latest $ECR_IMAGE:$RELEASE
 docker tag $NAME:latest $ECR_IMAGE:latest
 
@@ -18,11 +24,6 @@ echo "Pushed release $ECR_IMAGE:$RELEASE"
 # Tickle the Lambda function to trigger pulling :latest again
 aws --no-cli-pager lambda update-function-code --function-name $NAME --image-uri $ECR_IMAGE:latest
 
-# Wait for the deployment to finish
-function lambda_status()
-{
-  aws lambda get-function --output text --function-name $NAME --query 'Configuration.LastUpdateStatusReason'
-}
 echo "Waiting for lambda deployment..."
 st=$(lambda_status)
 while [[ "$st" != "None" ]]; do

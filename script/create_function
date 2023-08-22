@@ -121,11 +121,7 @@ $aws logs put-retention-policy --log-group-name "/aws/lambda/${NAME}" --retentio
 # Without this I get "The role defined for the function cannot be assumed by Lambda."
 sleep 10
 
-# These are the main security groups and subnets we use on the Flexmls prod account.
-# Change things around if you're on a different account.
-# Also change the tags appropriately for your app.
-# You can also specify a different lambda timeout and memory capacity.
-# More memory gives you more CPU quota time as well.
+# Create the lambda function
 $aws --no-cli-pager lambda create-function --function-name "$NAME" \
   --timeout "$TIMEOUT" --memory-size "$MEMORY" \
   --role "$role_arn" --code 'ImageUri='"$ECR_IMAGE"':latest' \

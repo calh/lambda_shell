@@ -21,7 +21,7 @@ RUN yum install -y \
   traceroute \
   unzip 
 
-# Other CLI apps that need to be pulled and installed manually
+# Other CLI apps that need to be installed from tarballs manually
 RUN curl -o /usr/local/bin/ecs-cli https://amazon-ecs-cli.s3.amazonaws.com/ecs-cli-linux-amd64-latest \
   && chmod 755 /usr/local/bin/ecs-cli \
   && curl -Lo /tmp/cw.tar.gz https://github.com/lucagrulla/cw/releases/download/v4.1.1/cw_4.1.1_Linux_x86_64.tar.gz \
@@ -44,12 +44,14 @@ RUN curl -o /usr/local/bin/ecs-cli https://amazon-ecs-cli.s3.amazonaws.com/ecs-c
 # && rm -f /tmp/aws.zip \
 
 
-# Override the AWS CLI entrypoint command with our own 
+# The aws-cli Docker image defines its own ENTRYPOINT to use 
+# the `aws` command.  Since we're repurposing this image, o
+# override the entrypoint command with our own 
 # Lambda Runtime Interface Client
 COPY entrypoint.sh /entrypoint.sh
 COPY handler.sh /handler.sh
 ENTRYPOINT ["/entrypoint.sh"] 
 
-# Assume everyone will be using "handler.sh" as their code
+# The Docker CMD command defines the handler exec hook for Lambda.
 # This can be overriden if you really want a different name.
 CMD ["/handler.sh"]
