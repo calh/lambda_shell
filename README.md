@@ -577,3 +577,33 @@ function handler()
 }
 
 ```
+
+### Find CW Log Groups Without Retention Policy and Set One
+
+Lots of things automatically create a CloudWatch Log Group.  By default,
+the retention policy is Never Expire, which means they collect 
+logs (and your monies) indefinitely.
+
+This iterates through every AWS Region, searches for log groups 
+with no retention set, then sets a new retention for 7 days.
+
+Note:  CloudFront will automatically create log groups in 
+regions that you don't use!
+
+```
+function handler()
+{
+  # Iterate regions
+  for region in $( aws ec2 describe-regions --output text --query 'Regions[][RegionName]' ); do
+    echo "### region $region ###"
+    # Log groups that do not have a retention policy set
+    for group in $( aws --region $region logs describe-log-groups \
+      | jq -r '.logGroups[] | select(has("retentionInDays") | not) | .logGroupName' 
+    ); do
+      echo "Log Group $group"
+      # Set it to 7 days
+      aws --region $region logs put-retention-policy --log-group-name $group --retention-in-days 7
+    done
+  done
+}
+```
