@@ -35,16 +35,16 @@ See [Examples](#Examples) below!
   * You can use a different filename if you set the Dockerfile `CMD` to your new script name
   * Read below for SDK info
 * Run:
-```
+```console
 $ ./script/create_function   # just one time
 ```
 * If you want to update your function code and redeploy, do:
-```
+```console
 $ ./script/docker_build
 $ ./script/docker_push
 ```
 * If you screw up and want to start from scratch again:
-```
+```console
 $ ./script/delete_function
 ```
 
@@ -63,22 +63,22 @@ $ ./script/delete_function
 If you want to invoke your bash function via an HTTP client, first configure
 a Function URL with the AWS CLI (or web console)
 
-```
-aws lambda create-function-url-config --function-name my_function_name --auth-type NONE
+```console
+$ aws lambda create-function-url-config --function-name my_function_name --auth-type NONE
 ```
 
 If you want your Function URL authenticated, [read more about that here](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html).
 
 A simple example:
 
-```
+```bash
 function handler()
 {
   generate_http_response "Hello World!"
 }
 ```
 
-```
+```console
 $ curl https://abcd1234.lambda-url.us-east-1.on.aws/
 Hello World!
 ```
@@ -193,7 +193,7 @@ Also creates the `HTTP_COOKIES` and `HTTP_PARAMS` associative array.
 
 Example:
 
-```
+```bash
 function handler()
 {
   parse_http_request
@@ -201,8 +201,8 @@ function handler()
 }
 ```
 
-```
-curl \
+```console
+$ curl \
   -H 'Cookie: mycookie=cookievalue' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   -d 'post1=post%20value' \
@@ -265,7 +265,7 @@ index.json.mo
 { "SnapshotId": "{{SNAPSHOT_ID}}" }
 ```
 
-```
+```bash
 function handler()
 {
   SNAPSHOT_ID="snap-1234"
@@ -380,7 +380,7 @@ This is always set to UID 993, username `sbx_user1051`
 
 Using the `$SCRIPT_NAME` variable, you can implement your own HTTP router with a case statement:
 
-```
+```bash
 function handler()
 {
   parse_http_request
@@ -408,13 +408,13 @@ function handler()
 Generate HTTP response cookies, and validate request cookies
 
 index.html.mo:
-```
+```html
 <html><body>
   Hi there {{HTTP_COOKIES.user}}!
 </body></html>
 ```
 
-```
+```bash
 function handler()
 {
   parse_http_request
@@ -443,7 +443,7 @@ and call `generate_http_response $tempfile`
 
 Don't forget to delete it after!
 
-```
+```bash
 function handler()
 {
   generate_http_response $(
@@ -453,8 +453,8 @@ function handler()
 }
 ```
 
-```
-curl https://abcd1234.lambda-url.us-east-1.on.aws
+```console
+$ curl https://abcd1234.lambda-url.us-east-1.on.aws
 [
     {
         "PrivateIpAddress": "192.168.0.10",
@@ -473,7 +473,7 @@ curl https://abcd1234.lambda-url.us-east-1.on.aws
 Pull EstimatedCharges from CloudWatch and forecast from Cost Explorer
 then send an email via SES.
 
-```
+```bash
 function handler()
 {
   yesterday_bill=$(aws cloudwatch get-metric-statistics \
@@ -526,7 +526,7 @@ tag for daily, weekly, monthly, quarterly and annually.
 After the snapshot has finished, create an AMI with
 the same tag.
 
-```
+```bash
 function retention()
 {
   local month=$(date +"%m")
@@ -591,7 +591,7 @@ with no retention set, then sets a new retention for 7 days.
 Note:  CloudFront will automatically create log groups in 
 regions that you don't use!
 
-```
+```bash
 function handler()
 {
   # Iterate regions
@@ -618,7 +618,7 @@ Ping the IP, then use curl to check that HTTP is running.  If
 either fails, do something like send an SES email or publish
 a CloudWatch Metric.
 
-```
+```bash
 function handler()
 {
   # Do something for each running container in an ECS cluster
@@ -654,7 +654,7 @@ A good example is ECS clusters, services, tags and IP addresses.  All of these
 need to be pulled from separate API endpoints.
 
 schema.sql:
-```
+```sql
 CREATE TABLE cluster (
   id integer primary key autoincrement, 
   name varchar
@@ -683,7 +683,7 @@ CREATE TABLE task (
 ```
 
 json_query.sql:
-```
+```sql
 select 
 json_group_object(
   cluster.name,
@@ -724,7 +724,7 @@ from cluster;
 ```
 
 handler.sh:
-```
+```bash
 function handler()
 {
   local sqldb=$(mktemp --suffix=.db)
@@ -797,7 +797,7 @@ function handler()
 
 The resulting output of the Function URL might look something like:
 
-```
+```json
 $ curl https://abcd1234.lambda-url.us-east-1.on.aws
 {
   "production": {
