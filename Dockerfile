@@ -1,3 +1,19 @@
+####################
+# If you don't want a fresh SQLite build, 
+# comment this section out, along with the
+# COPY command below.
+FROM amazon/aws-cli AS sqlite-build
+RUN yum install -y \
+  gcc \
+  unzip
+# Specify an SQLite version here
+ENV SQLITE_VERSION 3440000
+RUN curl -o /tmp/sqlite.zip https://www.sqlite.org/2023/sqlite-amalgamation-$SQLITE_VERSION.zip
+RUN cd /tmp && unzip sqlite.zip
+RUN cd /tmp/sqlite-amalgamation-$SQLITE_VERSION/ && gcc shell.c sqlite3.c -lpthread -ldl -lm -o /tmp/sqlite
+
+
+####################
 FROM amazon/aws-cli
 
 # Give us a full login sourced shell
@@ -43,6 +59,8 @@ RUN curl -o /usr/local/bin/ecs-cli https://amazon-ecs-cli.s3.amazonaws.com/ecs-c
 # && bash /tmp/aws/install -i /usr/local/aws-cli -b /usr/local/bin \
 # && rm -f /tmp/aws.zip \
 
+# If you don't want a newer SQLite, comment this out
+COPY --from=sqlite-build /tmp/sqlite /usr/bin/sqlite
 
 # The aws-cli Docker image defines its own ENTRYPOINT to use 
 # the `aws` command.  Since we're repurposing this image, o

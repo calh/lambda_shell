@@ -106,6 +106,7 @@ handlers are called for each container.
 * cw 4.1.1
 * jq 1.6
 * [Bash Mustache templates!](https://github.com/tests-always-included/mo)
+* SQLite 3.44.0 (Installed as `sqlite` binary to not conflict with `sqlite3` system version)
 
 ### Bash Functions
 
@@ -346,7 +347,7 @@ The function version, like `$LATEST`
 
 `$AWS_LAMBDA_LOG_GROUP_NAME`
 
-The CloudWatch log group name.  Example: `/aws/lambda/flexmaps_shapes_retention`
+The CloudWatch log group name.  Example: `/aws/lambda/my_lambda_function`
 
 `$AWS_LAMBDA_LOG_STREAM_NAME`
 
@@ -636,5 +637,185 @@ function handler()
       echo "HTTP is dead on $IP"
     fi
   done
+}
+```
+
+### Using SQLite JSON Plugins
+
+You might need more advanced functionality to work with JSON payloads 
+along with a simple database.  SQLite is perfect for this, and is
+installed as the binary name `sqlite`.  (The Amazon Linux 2 `sqlite3`
+is very old)
+
+Pull data from the AWS API, insert into local tables and then dump 
+the data out using [SQLite's JSON functions](https://www.sqlite.org/json1.html)
+
+A good example is ECS clusters, services, tags and IP addresses.  All of these
+need to be pulled from separate API endpoints.
+
+schema.sql:
+```
+CREATE TABLE cluster (
+  id integer primary key autoincrement, 
+  name varchar
+);
+CREATE TABLE service (
+  id integer primary key autoincrement, 
+  cluster_id integer, 
+  name varchar, 
+  FOREIGN KEY(cluster_id) REFERENCES cluster(id)
+);
+CREATE TABLE tag (
+  id integer primary key autoincrement, 
+  service_id integer,
+  key varchar,
+  value varchar,
+  FOREIGN KEY(service_id) REFERENCES service(id)
+);
+CREATE TABLE task (
+  id integer primary key autoincrement, 
+  service_id integer,
+  name varchar,
+  IP varchar,
+  port integer,
+  FOREIGN KEY(service_id) REFERENCES service(id)  
+);
+```
+
+json_query.sql:
+```
+select 
+json_group_object(
+  cluster.name,
+  (
+    select 
+    json_group_object(
+      service.name,
+      json_object(
+        'tags',
+        (
+          select 
+          json_group_object(tag.key,tag.value)
+          from tag
+          where tag.service_id=service.id
+        ),
+        'tasks',
+        (
+          select
+          json_group_object(
+            task.name,
+              json_object(
+                'IP',
+                task.IP,
+                'port',
+                task.port
+              )
+          )
+          from task
+          where task.service_id=service.id
+        )
+      )
+    )
+    from service
+    where service.cluster_id=cluster.id
+  )
+)
+from cluster;
+```
+
+handler.sh:
+```
+function handler()
+{
+  local sqldb=$(mktemp --suffix=.db)
+
+  sqlite $sqldb < /schema.sql
+
+  # Iterate over all cluster names
+  for cluster in $(aws ecs list-clusters --query 'clusterArns[].[@]' --output text | cut -d\/ -f2); do
+    local cluster_id=$(sqlite $sqldb "insert into cluster (name) values('$cluster') returning id")
+
+    # Iterate over service ARNs
+    for service_arn in $(aws ecs list-services --cluster "$cluster" --query 'serviceArns[].[@]' --output text); do
+      local service_name=$(echo "${service_arn}" | cut -d\/ -f3)
+      local service_id=$(
+        sqlite $sqldb "insert into service (cluster_id,name) values($cluster_id,'$service_name') returning id"
+      )
+      
+      # Iterate over tags for this service
+      for record in $(aws ecs list-tags-for-resource --resource-arn "$service_arn" | jq -r '.tags[] | @base64'); do
+        local tag_json=$(echo "$record" | base64 --decode)
+        local tag_key=$(echo "$tag_json" | jq -r '.key')
+        local tag_value=$(echo "$tag_json" | jq -r '.value')
+        sqlite $sqldb "insert into tag (service_id,key,value) values($service_id,'$tag_key','$tag_value')"
+      done
+
+      # iterate over task ARNs
+      for task_arn in $(aws ecs list-tasks --cluster "$cluster" --service "$service_name" --query 'taskArns[].[@]' --output text); do
+        local task_id=$(echo "${task_arn}" | cut -d\/ -f3)
+        local task_json=$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0]')
+        # For Fargate only
+        local IP=$(echo "$task_json" | jq -r '.containers[0].networkInterfaces[0].privateIpv4Address')
+        local task_definition_arn=$(echo "$task_json" | jq -r '.taskDefinitionArn')
+        local port=$(aws ecs describe-task-definition \
+          --task-definition $task_definition_arn \
+          --query 'taskDefinition.containerDefinitions[0].portMappings[0].hostPort' \
+          --output text
+        )
+        sqlite $sqldb "insert into task (service_id,name,IP,port) values($service_id,'$task_id','$IP',$port)"
+      done
+
+    done
+  done
+
+  # sqlite outputs a single line of JSON.  
+  # Pipe through jq for pretty output and additional syntax checking
+  local body=$(sqlite $sqldb < /json_query.sql | jq -r '.')
+
+  rm -f $sqldb
+
+  generate_http_response --content-type "application/json" "${body}"
+}
+```
+
+The resulting output of the Function URL might look something like:
+
+```
+$ curl https://abcd1234.lambda-url.us-east-1.on.aws
+{
+  "production": {
+    "web": {
+      "tags": {
+        "Environment": "production",
+        "Name": "web"
+      },
+      "tasks": {
+        "af0261572c4e568367f7628c3410e4c0": {
+          "IP": "192.168.10.10",
+          "port": 80
+        },
+        "df2231471cdef6231ffd61833f1de120": {
+          "IP": "192.168.10.11",
+          "port": 80
+        }
+      }
+    },
+    "api": {
+      "tags": {
+        "Environment": "production",
+        "Name": "api"
+      },
+      "tasks": {
+        "9523a53dff1143fdbff1132f2823939d": {
+          "IP": "192.168.11.20",
+          "port": 80
+        },
+        "f847031bef5243e2b1d22f924f229494": {
+          "IP": "192.168.11.23",
+          "port": 80
+        }
+      }
+    }
+  }
 }
 ```
