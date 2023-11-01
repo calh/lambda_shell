@@ -732,28 +732,44 @@ function handler()
   sqlite $sqldb < /schema.sql
 
   # Iterate over all cluster names
-  for cluster in $(aws ecs list-clusters --query 'clusterArns[].[@]' --output text | cut -d\/ -f2); do
-    local cluster_id=$(sqlite $sqldb "insert into cluster (name) values('$cluster') returning id")
+  for cluster in $(aws ecs list-clusters \
+    --query 'clusterArns[].[@]' \
+    --output text | cut -d\/ -f2); do
+
+    local cluster_id=$(sqlite $sqldb \
+      "insert into cluster (name) values('$cluster') returning id")
 
     # Iterate over service ARNs
-    for service_arn in $(aws ecs list-services --cluster "$cluster" --query 'serviceArns[].[@]' --output text); do
+    for service_arn in $(aws ecs list-services \
+      --cluster "$cluster" \
+      --query 'serviceArns[].[@]' --output text); do
+
       local service_name=$(echo "${service_arn}" | cut -d\/ -f3)
       local service_id=$(
-        sqlite $sqldb "insert into service (cluster_id,name) values($cluster_id,'$service_name') returning id"
+        sqlite $sqldb "insert into service (cluster_id,name) 
+           values($cluster_id,'$service_name') returning id"
       )
       
       # Iterate over tags for this service
-      for record in $(aws ecs list-tags-for-resource --resource-arn "$service_arn" | jq -r '.tags[] | @base64'); do
+      for record in $(aws ecs list-tags-for-resource \
+        --resource-arn "$service_arn" | jq -r '.tags[] | @base64'); do
         local tag_json=$(echo "$record" | base64 --decode)
         local tag_key=$(echo "$tag_json" | jq -r '.key')
         local tag_value=$(echo "$tag_json" | jq -r '.value')
-        sqlite $sqldb "insert into tag (service_id,key,value) values($service_id,'$tag_key','$tag_value')"
+        sqlite $sqldb "insert into tag (service_id,key,value)
+          values($service_id,'$tag_key','$tag_value')"
       done
 
       # iterate over task ARNs
-      for task_arn in $(aws ecs list-tasks --cluster "$cluster" --service "$service_name" --query 'taskArns[].[@]' --output text); do
+      for task_arn in $(aws ecs list-tasks \
+        --cluster "$cluster" --service "$service_name" \
+        --query 'taskArns[].[@]' --output text); do
+
         local task_id=$(echo "${task_arn}" | cut -d\/ -f3)
-        local task_json=$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0]')
+        local task_json=$(aws ecs describe-tasks \
+          --cluster "$cluster" \
+          --tasks "$task_arn" \
+          --query 'tasks[0]')
         # For Fargate only
         local IP=$(echo "$task_json" | jq -r '.containers[0].networkInterfaces[0].privateIpv4Address')
         local task_definition_arn=$(echo "$task_json" | jq -r '.taskDefinitionArn')
@@ -762,7 +778,8 @@ function handler()
           --query 'taskDefinition.containerDefinitions[0].portMappings[0].hostPort' \
           --output text
         )
-        sqlite $sqldb "insert into task (service_id,name,IP,port) values($service_id,'$task_id','$IP',$port)"
+        sqlite $sqldb "insert into task (service_id,name,IP,port)
+          values($service_id,'$task_id','$IP',$port)"
       done
 
     done
